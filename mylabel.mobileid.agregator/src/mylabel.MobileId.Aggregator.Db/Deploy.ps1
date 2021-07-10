@@ -1,0 +1,1 @@
+./any/dotnet-ef.exe database update --connection "#{EfMigrationDb}"

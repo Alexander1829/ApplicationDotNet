@@ -1,0 +1,107 @@
+﻿@page "/serviceprovider"
+
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavigationManager
+@inject ILogger<FetchData> logger
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<h3>Провайдеры</h3>
+<div class="form-group">
+    <button class="btn btn-success" @onclick="@(() => Add())"><i class="oi oi-plus"></i> Добавить</button>
+</div>
+<br>
+@if (serviceProviders == null)
+{
+    <text>Загрузка...</text>
+}
+else if (serviceProviders.Length == 0)
+{
+    <text>No Records Found.</text>
+}
+else
+{
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Client ID</th>
+                <th>Client Name</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (ServiceProvider dev in serviceProviders)
+            {
+                <tr>
+                    <td>@dev.ClientIdOnAggregator</td>
+                    <td>@dev.Name</td>
+                    <td>
+                        <button class="btn btn-warning" @onclick="@(() => Edit(dev.Id))" style="width:137px">@EditOrViewButtonText</button>
+                        @if (isAdmin)
+                        { 
+                            <button class="btn btn-danger" @onclick="@(() => Delete(dev.Id))">Удалить</button>
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+@code {
+    ServiceProvider[]? serviceProviders { get; set; }
+    bool isAdmin;
+    AuthenticationState? userstate;
+
+    string EditOrViewButtonText = "Детали";
+
+    protected override async Task OnInitializedAsync()
+    {
+        userstate = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        isAdmin = userstate.IsAdmin();
+
+        serviceProviders = await AggregatorContext.QueryAsync(c => c.ServiceProviders.ToArrayAsync());
+        if (serviceProviders?.Length > 0)
+            serviceProviders = serviceProviders.Where(l => !l.IsInactive).ToArray();
+
+        if (isAdmin)
+            EditOrViewButtonText = "Редактировать";
+    }
+
+    async Task Add()
+    {
+        if (isAdmin)
+            NavigationManager.NavigateTo($"/serviceprovider/edit/0");
+        else
+            await JSRuntime.InvokeVoidAsync("alert", "Запрашиваемая операция требует повышения прав");
+    }
+
+    async Task Edit(int providerId)
+    {
+        NavigationManager.NavigateTo($"/serviceprovider/edit/{providerId}");
+    }
+
+    async Task Delete(int providerId)
+    {
+        if (isAdmin)
+        {
+            var serviceProvider = serviceProviders.First(l => l.Id == providerId);
+
+            if (!await JSRuntime.InvokeAsync<bool>("confirm", $"Вы действительно хотите удалить клиента '{serviceProvider.Name}'?"))
+                return;
+
+            serviceProvider.IsInactive = true;
+            serviceProvider.ClientIdOnAggregator = serviceProvider.ClientIdOnAggregator + "_" + Guid.NewGuid().ToString();
+
+            await AggregatorContext.SaveAsync(ctx => ctx.ServiceProviders!.Update(serviceProvider));
+
+            var logMessage = userstate.CreateLogMessage($"Service provider was inactivated!", serviceProvider);
+
+            logger.LogInformation(logMessage);
+
+            await JSRuntime.InvokeVoidAsync("alert", "Данные успешно сохранены");
+
+            NavigationManager.NavigateTo($"/");
+        }
+        else
+            await JSRuntime.InvokeVoidAsync("alert", "Запрашиваемая операция требует повышения прав");
+    }
+}

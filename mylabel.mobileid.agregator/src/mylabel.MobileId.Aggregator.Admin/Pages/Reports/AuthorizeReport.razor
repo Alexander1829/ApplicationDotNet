@@ -1,0 +1,104 @@
+﻿@page "/reports/authorizereport"
+
+@inject IJSRuntime JSRuntime
+@inject IOptionsSnapshot<AdminSettings> AdminSettings
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject ILogger<AuthorizeReport> logger
+
+<h3>Авторизационный отчёт</h3>
+
+<EditForm Model="@AuthorizeReportRequest" OnValidSubmit="CreateReport">
+    <div class="form-group">
+        <label>Время с :</label>
+        <div>
+            <InputDateTime @bind-Value="@AuthorizeReportRequest.DateFrom" />
+        </div>
+    </div>
+    <div class="form-group">
+        <label>Время по :</label>
+        <div>
+            <InputDateTime @bind-Value="@AuthorizeReportRequest.DateBefore" />
+        </div>
+    </div>
+    <p><button type="submit">Сформировать</button></p>
+</EditForm>
+
+@code {
+    public AuthorizeReportRequest AuthorizeReportRequest { get; set; } = new AuthorizeReportRequest() { DateFrom = DateTimeOffset.Now.AddDays(-1), DateBefore = DateTimeOffset.Now };
+    AuthenticationState? userstate;
+
+    protected override async Task OnInitializedAsync()
+    {
+        userstate = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+    }
+
+    async Task CreateReport()
+    {
+        string serverMode = "Server Mode";
+        string deviceMode = "Device Mode";
+        string billingSuccess = "BillingSuccess";
+        string notBillinged = "NotBillinged";
+
+
+        var dateFrom = AuthorizeReportRequest.DateFrom.Value;
+        var dateBefore = AuthorizeReportRequest.DateBefore.Value;
+        if (dateBefore < dateFrom)
+            return;
+        var siRequests = await AggregatorContext.QueryAsync(
+            ctx => ctx.SIAuthorizationRequests!
+            .Where(l => l.CreatedAt >= dateFrom)
+            .Where(l => l.CreatedAt <= dateBefore)
+            .Select(l => new AuthorizationRequest
+            {
+                ClientIdOnAggregator = l.ClientIdOnAggregator!,
+                ExecutedAt = l.CreatedAt,
+                Mode = serverMode,
+                ServingOperator = l.ServingOperator,
+                Status = l.BillingSuccess ? billingSuccess : notBillinged
+            })
+            .ToArrayAsync()
+            );
+
+        var diRequests =
+        await AggregatorContext.QueryAsync(
+            ctx => ctx.DIAuthorizationRequests!
+            .Where(l => l.CreatedAt.Value >= dateFrom)
+            .Where(l => l.CreatedAt.Value <= dateBefore)
+            .Select(l => new AuthorizationRequest
+            {
+                ClientIdOnAggregator = l.ClientId,
+                ExecutedAt = l.CreatedAt.Value,
+                Mode = deviceMode,
+                ServingOperator = l.ServingOperator,
+                Status = l.BillingSuccess ? billingSuccess : notBillinged
+            })
+            .ToArrayAsync()
+            );
+        var allRequests = new AuthorizationRequest[diRequests.Length + siRequests.Length];
+        diRequests.CopyTo(allRequests, 0);
+        siRequests.CopyTo(allRequests, diRequests.Length);
+
+        var csv = new StringBuilder();
+        csv.AppendLine(string.Format("{1}{0}{2}{0}{3}{0}{4}{0}{5}", AdminSettings.Value.CsvDelimiter, "ClientID", "Init Mode", "Operator", "Status", "DateTime"));
+        foreach (var request in allRequests.OrderBy(l => l.ExecutedAt))
+        {
+            var newLine = string.Format("{1}{0}{2}{0}{3}{0}{4}{0}{5}", AdminSettings.Value.CsvDelimiter, request.ClientIdOnAggregator, request.Mode, request.ServingOperator, request.Status, request.ExecutedAt.ToString());
+            csv.AppendLine(newLine);
+        }
+
+        await SaveAs(JSRuntime, "AuthorizeReport.csv", Encoding.Default.GetBytes(csv.ToString()));
+
+        var logMessage = userstate.CreateLogMessage($"Report created successfully");
+
+        logger.LogInformation(logMessage);
+    }
+
+
+    async Task SaveAs(IJSRuntime js, string filename, byte[] data)
+    {
+        await js.InvokeAsync<object>(
+            "saveAsFile",
+            filename,
+            Convert.ToBase64String(data));
+    }
+}

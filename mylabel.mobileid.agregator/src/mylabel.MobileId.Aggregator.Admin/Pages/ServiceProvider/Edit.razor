@@ -1,0 +1,241 @@
+﻿@page "/serviceprovider/edit/{providerId:int}"
+
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavigationManager
+@inject ILogger<Edit> logger
+
+@if (providerId == 0)
+{
+    <h3>Добавить</h3>
+}
+else
+{
+    <h3>@(isAdmin ? "Редактировать" : "")</h3>
+}
+
+<Form IsAdmin="@isAdmin"
+      FormServiceProvider="@formServiceProvider"
+      DiscoveryServices="@discoveryServices"
+      NavigationManager="@NavigationManager"
+      CancelClicked="@OnCancelClicked"
+      RedirectUriInserted="@OnRedirectUriInserted"
+      NotificationUriInserted="@OnNotificationUriInserted"
+      RedirectUriDeleted="@OnRedirectUriDeleted"
+      NotificationUriDeleted="@OnNotificationUriDeleted"
+      ValidSubmited="@OnValidSubmitedAsync" />
+
+@code
+{
+    bool isAdmin;
+    AuthenticationState? userstate;
+
+    [Parameter]
+    public int providerId { get; set; }
+
+    FormServiceProvider formServiceProvider = new();
+    DiscoveryService[] discoveryServices = new DiscoveryService[0];
+
+    protected override async Task OnInitializedAsync()
+    {
+        userstate = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        isAdmin = userstate.IsAdmin();
+    }
+
+    protected override void OnParametersSet() //OnParametersSetAsync() не подошёл
+    {
+        using var ctx = new AggregatorContext();
+        discoveryServices = ctx.DiscoveryServices.ToArray();
+
+        if (providerId != 0)
+        {
+            var serviceProvider = ctx.ServiceProviders!
+                .Include(p => p.AllowedNotificationUris)
+                .Include(p => p.AllowedRedirectUris)
+                .Include(p => p.Discoveries).ThenInclude(d => d.DiscoveryService)
+                .FirstOrDefault(p => p.Id == providerId);
+            if (serviceProvider != null)
+                formServiceProvider = new FormServiceProvider(serviceProvider);
+        }
+    }
+
+    async Task OnValidSubmitedAsync()
+    {
+        if (!isAdmin)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", "Запрашиваемая операция требует повышения прав");
+            return;
+        }
+
+        int serviceProviderId = formServiceProvider.ServiceProvider.Id;
+
+        if (formServiceProvider.ServiceProvider.CreatedAt == DateTimeOffset.MinValue)
+            formServiceProvider.ServiceProvider.CreatedAt = DateTimeOffset.Now;
+        if (formServiceProvider.ServiceProvider.AllowedRedirectUris.Count == 0)
+            formServiceProvider.ServiceProvider.AllowedRedirectUris.Add(new SPRedirectUri { ServiceProviderId = serviceProviderId, Value = formServiceProvider.ValidSPRedirectUriFirst });
+        if (formServiceProvider.ServiceProvider.AllowedNotificationUris.Count == 0)
+            formServiceProvider.ServiceProvider.AllowedNotificationUris.Add(new SPNotificationUri { ServiceProviderId = serviceProviderId, Value = formServiceProvider.ValidSPNotificationUriFirst });
+        //из валидационных полей, в поля провайдера
+        formServiceProvider.ServiceProvider.BillingCtn = formServiceProvider.ValidBillingCtn;
+        formServiceProvider.ServiceProvider.ClientIdOnAggregator = formServiceProvider.ValidClientIdOnAggregator;
+        formServiceProvider.ServiceProvider.Name = formServiceProvider.ValidClientName;
+        formServiceProvider.ServiceProvider.AggregatorClientSecretHash = formServiceProvider.ValidAggregatorClientSecretHash;
+        formServiceProvider.ServiceProvider.AllowedIPAddresses = string.IsNullOrWhiteSpace(formServiceProvider.AllowedIPAddresses) ? null : formServiceProvider.AllowedIPAddresses.Trim();
+
+        foreach (var discovery in formServiceProvider.ServiceProvider.Discoveries)
+            discovery.IsEnabled = false;
+
+        var spDiscovery = formServiceProvider.ServiceProvider.Discoveries.FirstOrDefault(l => l.DiscoveryServiceId == formServiceProvider.ValidDiscoveryServiceId);
+        if (spDiscovery != null)
+        {
+            spDiscovery!.RedirectUri = formServiceProvider.ValidRedirectUriOnDiscovery;
+            spDiscovery!.ClientIdOnDiscovery = formServiceProvider.ValidClientIdOnDiscovery;
+            spDiscovery!.ClientSecretOnDiscovery = formServiceProvider.ValidClientSecretOnDiscovery;
+            spDiscovery!.IsEnabled = true;
+        }
+        else
+        {
+            spDiscovery = new SPToDiscoveryLink
+            {
+                ClientIdOnDiscovery = formServiceProvider.ValidClientIdOnDiscovery,
+                ClientSecretOnDiscovery = formServiceProvider.ValidClientSecretOnDiscovery,
+                RedirectUri = formServiceProvider.ValidRedirectUriOnDiscovery,
+                DiscoveryServiceId = formServiceProvider.ValidDiscoveryServiceId.Value,
+                ServiceProviderId = serviceProviderId,
+                IsEnabled = true,
+            };
+
+            formServiceProvider.ServiceProvider.Discoveries.Add(spDiscovery);
+        }
+
+        string logMessage;
+        if (serviceProviderId != 0)
+        {
+            await AggregatorContext.SaveAsync(ctx =>
+            {
+                if (spDiscovery.Id == 0)
+                    ctx.SPToDiscoveryLinks!.Add(spDiscovery);
+                else
+                    ctx.SPToDiscoveryLinks!.Update(spDiscovery);
+            });
+
+            await AggregatorContext.SaveAsync(ctx => { ctx.ServiceProviders!.Update(formServiceProvider.ServiceProvider); }); //К сожалению этого Update не хватает, в случае изменения списков
+
+            logMessage = userstate!.CreateLogMessage("Service provider updated successfully", formServiceProvider.ServiceProvider);
+        }
+        else
+        {
+            var serviceProvider = Mapper.CreateNew(formServiceProvider);
+
+            serviceProvider.AllowedRedirectUris = formServiceProvider.ServiceProvider.AllowedRedirectUris;
+            serviceProvider.AllowedNotificationUris = formServiceProvider.ServiceProvider.AllowedNotificationUris;
+
+            await AggregatorContext.SaveAsync(ctx => ctx.ServiceProviders!.Add(serviceProvider));
+
+            await AggregatorContext.SaveAsync(ctx =>
+            {
+                ctx.SPToDiscoveryLinks!.Add(
+                new SPToDiscoveryLink
+                {
+                    ClientIdOnDiscovery = formServiceProvider.ValidClientIdOnDiscovery,
+                    ClientSecretOnDiscovery = formServiceProvider.ValidClientSecretOnDiscovery,
+                    DiscoveryServiceId = formServiceProvider.ValidDiscoveryServiceId!.Value,
+                    IsEnabled = true,
+                    RedirectUri = formServiceProvider.ValidRedirectUriOnDiscovery,
+                    ServiceProviderId = serviceProvider.Id,
+                });
+            });
+
+            logMessage = userstate!.CreateLogMessage("Service provider created successfully", formServiceProvider.ServiceProvider);
+        }
+
+        logger.LogInformation(logMessage);
+
+        await JSRuntime.InvokeVoidAsync("alert", "Данные успешно сохранены");
+
+        NavigationManager.NavigateTo($"/serviceprovider");
+    }
+
+    void OnCancelClicked()
+    {
+        NavigationManager.NavigateTo($"/serviceprovider");
+    }
+
+    void OnRedirectUriInserted()
+    {
+        if (formServiceProvider.ServiceProvider.AllowedRedirectUris.Count == 0 &&
+            Uri.TryCreate(formServiceProvider.ValidSPRedirectUriFirst, UriKind.Absolute, out var _))
+        {
+            var spRedirectUri = new SPRedirectUri { ServiceProviderId = formServiceProvider.ServiceProvider.Id, Value = formServiceProvider.ValidSPRedirectUriFirst };
+            if (!formServiceProvider.ServiceProvider.AllowedRedirectUris.Exists(l => l.Value == formServiceProvider.ValidSPRedirectUriFirst))
+            {
+                formServiceProvider.ServiceProvider.AllowedRedirectUris.Add(spRedirectUri);
+            }
+        }
+
+        if (Uri.TryCreate(formServiceProvider.ValidSPRedirectUriAnother, UriKind.Absolute, out var _))
+        {
+            var spRedirectUri = new SPRedirectUri { ServiceProviderId = formServiceProvider.ServiceProvider.Id, Value = formServiceProvider.ValidSPRedirectUriAnother };
+            if (!formServiceProvider.ServiceProvider.AllowedRedirectUris.Exists(l => l.Value == formServiceProvider.ValidSPRedirectUriAnother))
+            {
+                formServiceProvider.ServiceProvider.AllowedRedirectUris.Add(spRedirectUri);
+                formServiceProvider.ValidSPRedirectUriAnother = null;
+            }
+        }
+    }
+
+    void OnNotificationUriInserted()
+    {
+        if (formServiceProvider.ServiceProvider.AllowedNotificationUris.Count == 0 &&
+            Uri.TryCreate(formServiceProvider.ValidSPNotificationUriFirst, UriKind.Absolute, out var _))
+        {
+            var spNotificationUri = new SPNotificationUri { ServiceProviderId = formServiceProvider.ServiceProvider.Id, Value = formServiceProvider.ValidSPNotificationUriFirst };
+            if (!formServiceProvider.ServiceProvider.AllowedNotificationUris.Exists(l => l.Value == formServiceProvider.ValidSPNotificationUriFirst))
+            {
+                formServiceProvider.ServiceProvider.AllowedNotificationUris.Add(spNotificationUri);
+            }
+        }
+
+        if (Uri.TryCreate(formServiceProvider.ValidSPNotificationUriAnother, UriKind.Absolute, out var _))
+        {
+            var spNotificationUri = new SPNotificationUri { ServiceProviderId = formServiceProvider.ServiceProvider.Id, Value = formServiceProvider.ValidSPNotificationUriAnother };
+            if (!formServiceProvider.ServiceProvider.AllowedNotificationUris.Exists(l => l.Value == formServiceProvider.ValidSPNotificationUriAnother))
+            {
+                formServiceProvider.ServiceProvider.AllowedNotificationUris.Add(spNotificationUri);
+                formServiceProvider.ValidSPNotificationUriAnother = null;
+            }
+        }
+    }
+
+    void OnRedirectUriDeleted(string vl)
+    {
+        var redirectUri = formServiceProvider.ServiceProvider.AllowedRedirectUris.First(l => l.Value == vl);
+        formServiceProvider.ServiceProvider.AllowedRedirectUris
+            .Remove(redirectUri);
+
+        if (formServiceProvider.ServiceProvider.AllowedRedirectUris.Count == 0)
+            formServiceProvider.ValidSPRedirectUriFirst = null;
+        if (isAdmin)
+            if (redirectUri.Id != 0)
+            {
+                using var ctx = new AggregatorContext();
+                ctx.SPRedirectUris!.Remove(redirectUri); ctx.SaveChanges();
+            }
+    }
+
+    void OnNotificationUriDeleted(string vl)
+    {
+        var notificationUri = formServiceProvider.ServiceProvider.AllowedNotificationUris.First(l => l.Value == vl);
+        formServiceProvider.ServiceProvider.AllowedNotificationUris
+            .Remove(notificationUri);
+
+        if (formServiceProvider.ServiceProvider.AllowedNotificationUris.Count == 0)
+            formServiceProvider.ValidSPNotificationUriFirst = null;
+        if (isAdmin)
+            if (notificationUri.Id != 0)
+            {
+                using var ctx = new AggregatorContext();
+                ctx.SPNotificationUris!.Remove(notificationUri); ctx.SaveChanges();
+            }
+    }
+}

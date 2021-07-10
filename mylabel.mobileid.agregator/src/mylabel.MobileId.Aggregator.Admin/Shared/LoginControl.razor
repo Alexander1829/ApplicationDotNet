@@ -1,0 +1,33 @@
+﻿@page "/loginControl"
+
+@inject NavigationManager NavigationManager
+
+<AuthorizeView>
+    <Authorized>
+        <b>Hello, @context.User?.Identity?.Name</b>
+        <a class="ml-md-auto btn btn-primary"
+           href="/logout?returnUrl=/"
+           target="_top">Logout</a>
+    </Authorized>
+    <NotAuthorized>
+        <input type="text" placeholder="User Name" @bind="@Username" @bind:event="onchange" />
+        &nbsp;&nbsp;
+        <input type="password" placeholder="Password" @bind="@Password" @bind:event="onchange" />
+        <button class="ml-md-auto btn btn-primary" @onclick="@(() => Login())">Login</button>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    string? Username { get; set; }
+    string? Password { get; set; }
+
+    async Task Login()
+    {
+        if (string.IsNullOrEmpty(Username) || string.IsNullOrEmpty(Password))
+        {
+            NavigationManager.NavigateTo($"/");
+        }
+        var credential = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{Username}:{Password}"));
+        NavigationManager.NavigateTo($"/auth/login?id={credential}", true);
+    }
+}

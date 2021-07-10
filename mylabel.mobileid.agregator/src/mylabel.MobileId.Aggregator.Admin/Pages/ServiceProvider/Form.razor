@@ -1,0 +1,377 @@
+﻿<EditForm Model="@FormServiceProvider" OnValidSubmit="@ValidSubmited" autocomplete="on">
+    @if (IsAdmin)
+    {
+        <button type="submit" class="btn btn-success">
+            Сохранить
+        </button>
+    }
+    <button type="button" class="btn @(IsAdmin ? "btn-light" : "btn-success")" style="width:104px;" @onclick="@CancelClicked">
+        @(IsAdmin ? "Отмена" : "ОК")
+    </button>
+    <br /><br />
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+
+    <div class="form-group row">
+        <div class="col-sm-6" style="font-weight:bold">Main</div> @*Main*@
+    </div>
+    @if (FormServiceProvider.ServiceProvider.Id != 0)
+    {
+        <div class="form-group row">
+            <label for="row1-1" class="col-sm-2 col-form-label">Registered at</label>
+            <div class="col-sm-4">
+                @FormServiceProvider.ServiceProvider.CreatedAt.ToString("yyyy-MM-ddTHH:mm:ss")
+            </div>
+        </div>
+    }
+    <div class="form-group row">
+        <label for="row1-2" class="col-sm-2 col-form-label">Client Name</label>
+        <div class="col-sm-4">
+            <InputText @bind-Value="@FormServiceProvider.ValidClientName" class="form-control" id="row1-2" />
+            <ValidationMessage For="@(() => FormServiceProvider.ValidClientName)" />
+        </div>
+    </div>
+    <div class="form-group row">
+        <label for="row1-3" class="col-sm-2 col-form-label">Client ID</label>
+        <div class="col-sm-4">
+            <InputText @bind-Value="@FormServiceProvider.ValidClientIdOnAggregator" class="form-control" id="row1-3" autocomplete="off" />
+            <ValidationMessage For="@(() => FormServiceProvider.ValidClientIdOnAggregator)" />
+        </div>
+    </div>
+
+    <div class="form-group row">
+        <label class="col-sm-2 col-form-label">Client secret </label>
+        <div class="col-sm-4">
+            @if (FormServiceProvider.ServiceProvider.Id != 0)
+            {
+                <label for="row2-2" class="col-form-label">Edit Client secret </label>
+                <InputCheckbox @bind-Value="@FormServiceProvider.FormIsClientSecretChanged" id="row2-2" />
+            }
+            else
+            {
+                <InputText @bind-Value="@FormServiceProvider.FormClientSecret1" class="form-control" type="password" placeholder="Type a secret" @onfocusout="@OnClientSecretFocusOut" />
+                <ValidationMessage For="@(() => FormServiceProvider.ValidAggregatorClientSecretHash)" />
+            }
+        </div>
+    </div>
+
+    @if (FormServiceProvider.ServiceProvider.Id != 0 && FormServiceProvider.FormIsClientSecretChanged)
+    {
+        <div class="form-group row">
+            <div class="offset-sm-2 col-sm-4">
+                <InputText @bind-Value="@FormServiceProvider.FormClientSecret1" type="password" placeholder="Type a secret" @onfocusout="@OnClientSecretFocusOut" class="form-control" autocomplete="off" />
+                <ValidationMessage For="@(() => FormServiceProvider.ValidAggregatorClientSecretsAreEquals)" />
+            </div>
+        </div>
+    }
+    @if (FormServiceProvider.ServiceProvider.Id == 0 || FormServiceProvider.FormIsClientSecretChanged)
+    {
+        <div class="form-group row">
+            <div class="offset-sm-2 col-sm-4">
+                <InputText @bind-Value="@FormServiceProvider.FormClientSecret2" type="password" placeholder="Type a secret again" @onfocusout="@OnClientSecretFocusOut" class="form-control" autocomplete="off" />
+                <ValidationMessage For="@(() => FormServiceProvider.ValidAggregatorClientSecretsAreEquals)" />
+            </div>
+        </div>
+    }
+
+    <br />
+
+    <div class="form-group row">
+        <div class="col-sm-6" style="font-weight:bold">Redirects</div> @*Redirects*@
+    </div>
+
+    <div class="form-group row">
+
+        @if (FormServiceProvider.ServiceProvider.AllowedRedirectUris.Count == 0)
+        {
+            <label for="row1-5" class="col-sm-2 col-form-label">Redirect Uri(s)</label>
+            <div class="col-sm-4">
+                <div class="input-group mb-3">
+                    <InputText @bind-Value="@FormServiceProvider.ValidSPRedirectUriFirst" type="url" class="form-control" id="row1-5" />
+                    <button type="button"
+                            class="btn btn-outline-secondary"
+                            @onclick="@RedirectUriInserted">
+                        +
+                    </button>
+                </div>
+                <ValidationMessage For="@(() => FormServiceProvider.ValidSPRedirectUriFirst)" />
+            </div>
+        }
+        else
+        {
+            <label for="row11-5" class="col-sm-2 col-form-label">Redirect Uri(s)</label>
+            <div class="col-sm-4">
+                <div class="input-group mb-3">
+                    <InputText @bind-Value="@FormServiceProvider.ValidSPRedirectUriAnother" type="url" class="form-control" id="row11-5" />
+                    <button type="button" class="btn btn-outline-secondary" @onclick="@RedirectUriInserted">
+                        +
+                    </button>
+                </div>
+
+                @foreach (var spUri in FormServiceProvider.ServiceProvider.AllowedRedirectUris)
+                {
+                    <div class="input-group mb-3">
+                        <input value="@spUri.Value" class="form-control" disabled />
+                        <button type="button" class="btn btn-outline-secondary" @onclick="@(e => InvokeRedirectUriDeleted(spUri.Value!))">
+                            -
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+    <div class="form-group row">
+
+        @if (FormServiceProvider.ServiceProvider.AllowedNotificationUris.Count == 0)
+        {
+            <label for="row1-5" class="col-sm-2 col-form-label">Notification Uri(s)</label>
+            <div class="col-sm-4">
+                <div class="input-group mb-3">
+                    <InputText @bind-Value="@FormServiceProvider.ValidSPNotificationUriFirst" type="url" class="form-control" id="row1-5" />
+                    <button type="button"
+                            class="btn btn-outline-secondary"
+                            @onclick="@NotificationUriInserted">
+                        +
+                    </button>
+                </div>
+                <ValidationMessage For="@(() => FormServiceProvider.ValidSPNotificationUriFirst)" />
+            </div>
+        }
+        else
+        {
+            <label for="row11-5" class="col-sm-2 col-form-label">Notification Uri(s)</label>
+            <div class="col-sm-4">
+                <div class="input-group mb-3">
+                    <InputText @bind-Value="@FormServiceProvider.ValidSPNotificationUriAnother" type="url" class="form-control" id="row11-5" />
+                    <button type="button" class="btn btn-outline-secondary" @onclick="@NotificationUriInserted">
+                        +
+                    </button>
+                </div>
+
+                @foreach (var spUri in FormServiceProvider.ServiceProvider.AllowedNotificationUris)
+                {
+                    <div class="input-group mb-3">
+                        <input value="@spUri.Value" class="form-control" disabled />
+                        <button type="button" class="btn btn-outline-secondary" @onclick="@(e => InvokeNotificationUriDeleted(spUri.Value!))">
+                            -
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    <br />
+
+    <div class="form-group row">
+        <div class="col-sm-6" style="font-weight:bold">Credentials</div> @*Credentials*@
+    </div>
+
+    <div class="form-group row">
+        <label for="row2-3" class="col-sm-2 col-form-label">Jwks Uri</label>
+        <div class="col-sm-4">
+            <InputText @bind-Value="@FormServiceProvider.ServiceProvider.JwksUri" class="form-control" id="row2-3" disabled="@FormServiceProvider.ServiceProvider.UseStoredJwksValue" @onfocusout="@OnJwksFocusOut" />
+            <ValidationMessage For="@(() => FormServiceProvider.ValidJwksUriOrValueSetted)" />
+        </div>
+    </div>
+    <div class="form-group row">
+        <label for="row2-4" class="col-sm-2 col-form-label">Jwks value </label>
+        <div class="col-sm-4">
+            <InputText @bind-Value="@FormServiceProvider.ServiceProvider.JwksValue" class="form-control" id="row2-4" disabled="@(FormServiceProvider.ServiceProvider.UseStoredJwksValue == false)" @onfocusout="@OnJwksFocusOut" />
+            <ValidationMessage For="@(() => FormServiceProvider.ValidJwksUriOrValueSetted)" />
+        </div>
+    </div>
+    <div class="form-group row">
+        <label for="row2-5" class="col-sm-2 col-form-label">Jwks caching in seconds</label>
+        <div class="col-sm-4">
+            <InputNumber @bind-Value="@FormServiceProvider.ServiceProvider.JwksCachingInSeconds" class="form-control" id="row2-5" />
+        </div>
+    </div>
+    <div class="form-group row">
+        <label class="col-sm-2 col-form-label"> Use stored Jwks value </label>
+        <div class="col-sm-4">
+            <InputCheckbox @bind-Value="@FormServiceProvider.ServiceProvider.UseStoredJwksValue" />
+        </div>
+    </div>
+
+    <br />
+
+    <div class="form-group row">
+        <div class="col-sm-6" style="font-weight:bold">User info settings</div> @*User info settings*@
+    </div>
+    <div class="form-group row">
+        <label class="col-sm-2 col-form-label"> Is premium info signed</label>
+        <div class="col-sm-4">
+            <InputCheckbox @bind-Value="@FormServiceProvider.ServiceProvider.IsPremiumInfoSigned" />
+        </div>
+    </div>
+
+    <br />
+
+    <div class="form-group row">
+        <div class="col-sm-6" style="font-weight:bold">Discovery settings</div> @*Discovery settings*@
+    </div>
+
+    <div class="form-group row">
+        <label for="row4-1" class="col-sm-2 col-form-label">Discovery </label>
+        <div class="col-sm-4">
+            <InputSelect @bind-Value="@FormServiceProvider.ValidDiscoveryServiceId" @oninput="@OnDiscoveryIdChanged" class="form-control">
+                <option style="display:none">Not selected</option>
+                @foreach (var discovery in DiscoveryServices)
+                {
+                    <option value="@discovery.Id">@discovery.Uri</option>
+                }
+            </InputSelect>
+        </div>
+    </div>
+    <div class="form-group row">
+        <label for="row4-2" class="col-sm-2 col-form-label">Client ID</label>
+        <div class="col-sm-4">
+            <InputText @bind-Value="@FormServiceProvider.ValidClientIdOnDiscovery" class="form-control" id="row4-2" />
+            <ValidationMessage For="@(() => FormServiceProvider.ValidClientIdOnDiscovery)" />
+        </div>
+    </div>
+    <div class="form-group row">
+        <label for="row4-2" class="col-sm-2 col-form-label">Client secret</label>
+        <div class="col-sm-4">
+            <InputText @bind-Value="@FormServiceProvider.ValidClientSecretOnDiscovery" class="form-control" id="row4-2" />
+            <ValidationMessage For="@(() => FormServiceProvider.ValidClientSecretOnDiscovery)" />
+        </div>
+    </div>
+    <div class="form-group row">
+        <label for="row4-3" class="col-sm-2 col-form-label">Redirect Uri</label>
+        <div class="col-sm-4">
+            <InputText @bind-Value="@FormServiceProvider.ValidRedirectUriOnDiscovery" type="url" class="form-control" id="row4-3" />
+            <ValidationMessage For="@(() => FormServiceProvider.ValidRedirectUriOnDiscovery)" />
+        </div>
+    </div>
+
+    <br />
+
+    <div class="form-group row">
+        <div class="col-sm-6" style="font-weight:bold">Billing settings</div> @*Billing settings*@
+    </div>
+    <div class="form-group row">
+        <label class="col-sm-2 col-form-label">Billing ctn</label>
+        <div class="col-sm-4">
+            <InputNumber @bind-Value="@FormServiceProvider.ValidBillingCtn" class="form-control" />
+            <ValidationMessage For="@(() => FormServiceProvider.ValidBillingCtn)" />
+        </div>
+    </div>
+
+    <br />
+
+    <div class="form-group row">
+        <div class="col-sm-6" style="font-weight:bold">Other settings</div> @*Other settings*@
+    </div>
+    <div class="form-group row">
+        <label for="row1-4" class="col-sm-2 col-form-label">Disabled</label>
+        <div class="col-sm-4">
+            <InputCheckbox @bind-Value="@FormServiceProvider.ServiceProvider.IsInactive" />
+        </div>
+    </div>
+    <div class="form-group row">
+        <label class="col-sm-2 col-form-label">
+            Allowed IP Addresses (<span title="11.22.33.44, 192.168.0.16 - 192.168.0.31, 55.66.77.128/25" style="text-decoration:underline dotted;color:gray;cursor:pointer;">sample</span>)
+        </label>
+        <div class="col-sm-4">
+            <InputText @bind-Value="@FormServiceProvider.AllowedIPAddresses" class="form-control" />
+            <ValidationMessage For="@(() => FormServiceProvider.AllowedIPAddresses)" />
+        </div>
+    </div>
+
+    <br /><br />
+</EditForm>
+
+@code
+{
+    [Parameter] public bool IsAdmin { get; set; }
+
+    [Parameter] public FormServiceProvider FormServiceProvider { get; set; }
+    [Parameter] public DiscoveryService[] DiscoveryServices { get; set; }
+    [Parameter] public NavigationManager NavigationManager { get; set; }
+
+    [Parameter] public EventCallback ValidSubmited { get; set; }
+    [Parameter] public EventCallback CancelClicked { get; set; }
+    [Parameter] public EventCallback RedirectUriInserted { get; set; }
+    [Parameter] public EventCallback NotificationUriInserted { get; set; }
+    [Parameter] public Action<string?> RedirectUriDeleted { get; set; }
+    [Parameter] public Action<string?> NotificationUriDeleted { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var enabledDisco = FormServiceProvider.ServiceProvider.Discoveries?.FirstOrDefault(l => l.IsEnabled);
+        if (enabledDisco != null)
+        {
+            FormServiceProvider.ValidDiscoveryServiceId = enabledDisco.DiscoveryServiceId;
+        }
+    }
+
+    void InvokeRedirectUriDeleted(string id)
+    {
+        RedirectUriDeleted.Invoke(id);
+    }
+
+    void InvokeNotificationUriDeleted(string id)
+    {
+        NotificationUriDeleted.Invoke(id);
+    }
+
+    void OnClientSecretFocusOut()
+    {
+        if (!string.IsNullOrEmpty(FormServiceProvider.FormClientSecret1)
+            && FormServiceProvider.FormClientSecret1 == FormServiceProvider.FormClientSecret2
+            && FormServiceProvider.FormClientSecret1.Length > 0)
+        {
+            FormServiceProvider.ValidAggregatorClientSecretHash = HelperHash.HashString(FormServiceProvider.FormClientSecret1);
+            FormServiceProvider.ValidAggregatorClientSecretsAreEquals = true;
+            FormServiceProvider.ServiceProvider.AggregatorClientSecretHash = FormServiceProvider.ValidAggregatorClientSecretHash;
+        }
+        else
+        {
+            FormServiceProvider.ValidAggregatorClientSecretHash = null;
+            FormServiceProvider.ValidAggregatorClientSecretsAreEquals = false;
+        }
+    }
+
+    void OnJwksFocusOut()
+    {
+        if ((!string.IsNullOrEmpty(FormServiceProvider.ServiceProvider.JwksUri) &&
+            Uri.TryCreate(FormServiceProvider.ServiceProvider.JwksUri, UriKind.Absolute, out var _))
+            &&
+            !FormServiceProvider.ServiceProvider.UseStoredJwksValue)
+        {
+            FormServiceProvider.ValidJwksUriOrValueSetted = true;
+        }
+
+        else if (!string.IsNullOrEmpty(FormServiceProvider.ServiceProvider.JwksValue)
+            &&
+            FormServiceProvider.ServiceProvider.UseStoredJwksValue)
+        {
+            FormServiceProvider.ValidJwksUriOrValueSetted = true;
+        }
+        else
+        {
+            FormServiceProvider.ValidJwksUriOrValueSetted = false;
+        }
+    }
+
+    void OnDiscoveryIdChanged(ChangeEventArgs e)
+    {
+        var selectedDiscoveryId = int.Parse(e.Value.ToString());
+        var spDiscovery = FormServiceProvider.ServiceProvider.Discoveries?.FirstOrDefault(d => d.DiscoveryServiceId == selectedDiscoveryId);
+
+        if (spDiscovery != null)
+        {
+            FormServiceProvider.ValidRedirectUriOnDiscovery = spDiscovery!.RedirectUri;
+            FormServiceProvider.ValidClientIdOnDiscovery = spDiscovery!.ClientIdOnDiscovery;
+            FormServiceProvider.ValidClientSecretOnDiscovery = spDiscovery!.ClientSecretOnDiscovery;
+        }
+        else
+        {
+            FormServiceProvider.ValidRedirectUriOnDiscovery = string.Empty;
+            FormServiceProvider.ValidClientIdOnDiscovery = string.Empty;
+            FormServiceProvider.ValidClientSecretOnDiscovery = string.Empty;
+        }
+    }
+}

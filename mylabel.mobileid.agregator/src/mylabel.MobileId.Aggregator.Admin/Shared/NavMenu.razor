@@ -1,0 +1,28 @@
+﻿@inject ILogger<NavMenu> logger
+@inject IHttpContextAccessor httpContextAccessor
+
+<div class="@NavMenuCssClass" @onclick="ToggleNavMenu">
+    <ul class="nav flex-column">
+        <li class="nav-item px-3">
+            <NavLink class="nav-link" href="serviceprovider">
+                <span class="oi oi-people" aria-hidden="true"></span> Сервис-провайдеры
+            </NavLink>
+        </li>
+        <li class="nav-item px-3">
+            <NavLink class="nav-link" href="reports/authorizereport">
+                <span class="oi oi-list-rich" aria-hidden="true"></span> Отчётность
+            </NavLink>
+        </li>
+    </ul>
+</div>
+
+@code {
+    bool collapseNavMenu = true;
+
+    string? NavMenuCssClass => collapseNavMenu ? "collapse" : null;
+
+    void ToggleNavMenu()
+    {
+        collapseNavMenu = !collapseNavMenu;
+    }
+}
